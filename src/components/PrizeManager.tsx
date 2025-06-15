@@ -1,3 +1,4 @@
+
 import { useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -6,7 +7,9 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Trash2, Plus, Gift, Upload, Download } from "lucide-react";
 import { Prize } from "@/hooks/useGiveaway";
+import { toast } from 'sonner';
 import * as XLSX from 'xlsx';
+import { sanitizeText, validateImageFile, validateExcelFile, validatePrizeData } from '@/utils/validation';
 
 interface PrizeManagerProps {
   prizes: Prize[];
@@ -22,32 +25,70 @@ export const PrizeManager = ({ prizes, onAddPrize, onDeletePrize }: PrizeManager
     quantity: 1,
     image: ''
   });
+  const [isImporting, setIsImporting] = useState(false);
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        setFormData(prev => ({ ...prev, image: event.target?.result as string }));
-      };
-      reader.readAsDataURL(file);
+    if (!file) return;
+
+    // Validate image file
+    const validation = validateImageFile(file);
+    if (!validation.isValid) {
+      toast.error(validation.error || 'File gambar tidak valid');
+      return;
     }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      setFormData(prev => ({ ...prev, image: event.target?.result as string }));
+    };
+    reader.onerror = () => {
+      toast.error('Gagal membaca file gambar');
+    };
+    reader.readAsDataURL(file);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.name.trim()) return;
     
-    onAddPrize(formData);
+    // Validate and sanitize input
+    const sanitizedData = {
+      name: sanitizeText(formData.name, 100),
+      description: sanitizeText(formData.description, 500),
+      quantity: Math.max(1, Math.min(1000, formData.quantity)),
+      image: formData.image
+    };
+    
+    if (!sanitizedData.name.trim()) {
+      toast.error('Nama hadiah harus diisi');
+      return;
+    }
+    
+    // Check for duplicate prize name
+    if (prizes.some(p => p.name.toLowerCase() === sanitizedData.name.toLowerCase())) {
+      toast.error('Nama hadiah sudah ada');
+      return;
+    }
+    
+    onAddPrize(sanitizedData);
     setFormData({ name: '', description: '', quantity: 1, image: '' });
     setShowAddForm(false);
   };
 
-  const handleExcelImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleExcelImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    // Validate file
+    const fileValidation = validateExcelFile(file);
+    if (!fileValidation.isValid) {
+      toast.error(fileValidation.error || 'File tidak valid');
+      return;
+    }
+
+    setIsImporting(true);
     const reader = new FileReader();
+    
     reader.onload = (event) => {
       try {
         const data = new Uint8Array(event.target?.result as ArrayBuffer);
@@ -56,25 +97,78 @@ export const PrizeManager = ({ prizes, onAddPrize, onDeletePrize }: PrizeManager
         const worksheet = workbook.Sheets[sheetName];
         const jsonData = XLSX.utils.sheet_to_json(worksheet);
 
-        jsonData.forEach((row: any) => {
-          if (row.name || row.Name || row.NAMA) {
+        if (jsonData.length === 0) {
+          toast.error('File Excel kosong');
+          setIsImporting(false);
+          return;
+        }
+
+        if (jsonData.length > 500) {
+          toast.error('Terlalu banyak data. Maksimal 500 hadiah per import');
+          setIsImporting(false);
+          return;
+        }
+
+        let successCount = 0;
+        let errorCount = 0;
+        const errors: string[] = [];
+
+        jsonData.forEach((row: any, index) => {
+          try {
             const prize = {
-              name: row.name || row.Name || row.NAMA || '',
-              description: row.description || row.Description || row.DESKRIPSI || row.deskripsi || '',
-              quantity: parseInt(row.quantity || row.Quantity || row.JUMLAH || row.jumlah || '1') || 1,
-              image: row.image || row.Image || row.GAMBAR || row.gambar || ''
+              name: sanitizeText(String(row.name || row.Name || row.NAMA || ''), 100),
+              description: sanitizeText(String(row.description || row.Description || row.DESKRIPSI || row.deskripsi || ''), 500),
+              quantity: Math.max(1, Math.min(1000, parseInt(row.quantity || row.Quantity || row.JUMLAH || row.jumlah || '1') || 1)),
+              image: sanitizeText(String(row.image || row.Image || row.GAMBAR || row.gambar || ''), 2048)
             };
-            if (prize.name.trim()) {
-              onAddPrize(prize);
+
+            const validation = validatePrizeData(prize);
+            if (!validation.isValid) {
+              errorCount++;
+              errors.push(`Baris ${index + 2}: ${validation.error}`);
+              return;
             }
+
+            // Check for duplicate prize name
+            if (prizes.some(p => p.name.toLowerCase() === prize.name.toLowerCase())) {
+              errorCount++;
+              errors.push(`Baris ${index + 2}: Hadiah ${prize.name} sudah ada`);
+              return;
+            }
+
+            onAddPrize(prize);
+            successCount++;
+          } catch (error) {
+            errorCount++;
+            errors.push(`Baris ${index + 2}: Error tidak diketahui`);
           }
         });
+
+        if (successCount > 0) {
+          toast.success(`Berhasil mengimpor ${successCount} hadiah`);
+        }
+        
+        if (errorCount > 0) {
+          toast.error(`${errorCount} data gagal diimpor. Periksa format data.`);
+          console.error('Import errors:', errors.slice(0, 10)); // Log first 10 errors
+        }
       } catch (error) {
         console.error('Error importing Excel file:', error);
-        alert('Gagal mengimpor file Excel. Pastikan format file benar.');
+        toast.error('Gagal mengimpor file Excel. Pastikan format file benar.');
+      } finally {
+        setIsImporting(false);
       }
     };
+    
+    reader.onerror = () => {
+      toast.error('Gagal membaca file');
+      setIsImporting(false);
+    };
+    
     reader.readAsArrayBuffer(file);
+    
+    // Reset input
+    e.target.value = '';
   };
 
   const downloadTemplate = () => {
@@ -108,15 +202,16 @@ export const PrizeManager = ({ prizes, onAddPrize, onDeletePrize }: PrizeManager
               Template Excel
             </Button>
             <div className="relative">
-              <Button variant="outline" asChild>
+              <Button variant="outline" asChild disabled={isImporting}>
                 <label className="cursor-pointer">
                   <Upload className="w-4 h-4 mr-2" />
-                  Import Excel
+                  {isImporting ? 'Mengimpor...' : 'Import Excel'}
                   <input
                     type="file"
                     accept=".xlsx,.xls"
                     onChange={handleExcelImport}
                     className="absolute inset-0 opacity-0 cursor-pointer"
+                    disabled={isImporting}
                   />
                 </label>
               </Button>
@@ -137,6 +232,7 @@ export const PrizeManager = ({ prizes, onAddPrize, onDeletePrize }: PrizeManager
                       value={formData.name}
                       onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
                       placeholder="Masukkan nama hadiah"
+                      maxLength={100}
                       required
                     />
                   </div>
@@ -147,6 +243,7 @@ export const PrizeManager = ({ prizes, onAddPrize, onDeletePrize }: PrizeManager
                       value={formData.description}
                       onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
                       placeholder="Masukkan deskripsi hadiah"
+                      maxLength={500}
                     />
                   </div>
                   <div className="space-y-2">
@@ -155,6 +252,7 @@ export const PrizeManager = ({ prizes, onAddPrize, onDeletePrize }: PrizeManager
                       id="prize-quantity"
                       type="number"
                       min="1"
+                      max="1000"
                       value={formData.quantity}
                       onChange={(e) => setFormData(prev => ({ ...prev, quantity: parseInt(e.target.value) || 1 }))}
                     />
@@ -164,10 +262,11 @@ export const PrizeManager = ({ prizes, onAddPrize, onDeletePrize }: PrizeManager
                     <Input
                       id="prize-image"
                       type="file"
-                      accept="image/*"
+                      accept="image/jpeg,image/jpg,image/png,image/gif,image/webp"
                       onChange={handleImageUpload}
                       className="cursor-pointer"
                     />
+                    <p className="text-xs text-gray-500">Maksimal 5MB. Format: JPEG, PNG, GIF, WebP</p>
                     {formData.image && (
                       <div className="mt-2">
                         <img 
@@ -199,6 +298,9 @@ export const PrizeManager = ({ prizes, onAddPrize, onDeletePrize }: PrizeManager
                         src={prize.image} 
                         alt={prize.name}
                         className="w-full h-32 object-cover rounded-lg"
+                        onError={(e) => {
+                          e.currentTarget.style.display = 'none';
+                        }}
                       />
                     </div>
                   )}

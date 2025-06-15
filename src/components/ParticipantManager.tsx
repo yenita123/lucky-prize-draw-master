@@ -1,3 +1,4 @@
+
 import { useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -6,7 +7,9 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Trash2, Plus, Users, Mail, Phone, Upload, Download } from "lucide-react";
 import { Participant } from "@/hooks/useGiveaway";
+import { toast } from 'sonner';
 import * as XLSX from 'xlsx';
+import { validateEmail, validatePhone, sanitizeText, validateExcelFile, validateParticipantData } from '@/utils/validation';
 
 interface ParticipantManagerProps {
   participants: Participant[];
@@ -22,21 +25,59 @@ export const ParticipantManager = ({ participants, onAddParticipant, onDeletePar
     phone: '',
     address: ''
   });
+  const [isImporting, setIsImporting] = useState(false);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.name.trim() || !formData.email.trim()) return;
     
-    onAddParticipant(formData);
+    // Validate and sanitize input
+    const sanitizedData = {
+      name: sanitizeText(formData.name, 100),
+      email: sanitizeText(formData.email, 254),
+      phone: sanitizeText(formData.phone, 20),
+      address: sanitizeText(formData.address, 500)
+    };
+    
+    if (!sanitizedData.name.trim()) {
+      toast.error('Nama peserta harus diisi');
+      return;
+    }
+    
+    if (!validateEmail(sanitizedData.email)) {
+      toast.error('Format email tidak valid');
+      return;
+    }
+    
+    if (sanitizedData.phone && !validatePhone(sanitizedData.phone)) {
+      toast.error('Format nomor telepon tidak valid');
+      return;
+    }
+    
+    // Check for duplicate email
+    if (participants.some(p => p.email.toLowerCase() === sanitizedData.email.toLowerCase())) {
+      toast.error('Email sudah terdaftar');
+      return;
+    }
+    
+    onAddParticipant(sanitizedData);
     setFormData({ name: '', email: '', phone: '', address: '' });
     setShowAddForm(false);
   };
 
-  const handleExcelImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleExcelImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    // Validate file
+    const fileValidation = validateExcelFile(file);
+    if (!fileValidation.isValid) {
+      toast.error(fileValidation.error || 'File tidak valid');
+      return;
+    }
+
+    setIsImporting(true);
     const reader = new FileReader();
+    
     reader.onload = (event) => {
       try {
         const data = new Uint8Array(event.target?.result as ArrayBuffer);
@@ -45,25 +86,78 @@ export const ParticipantManager = ({ participants, onAddParticipant, onDeletePar
         const worksheet = workbook.Sheets[sheetName];
         const jsonData = XLSX.utils.sheet_to_json(worksheet);
 
-        jsonData.forEach((row: any) => {
-          if (row.name || row.Name || row.NAMA) {
+        if (jsonData.length === 0) {
+          toast.error('File Excel kosong');
+          setIsImporting(false);
+          return;
+        }
+
+        if (jsonData.length > 1000) {
+          toast.error('Terlalu banyak data. Maksimal 1000 peserta per import');
+          setIsImporting(false);
+          return;
+        }
+
+        let successCount = 0;
+        let errorCount = 0;
+        const errors: string[] = [];
+
+        jsonData.forEach((row: any, index) => {
+          try {
             const participant = {
-              name: row.name || row.Name || row.NAMA || '',
-              email: row.email || row.Email || row.EMAIL || '',
-              phone: row.phone || row.Phone || row.PHONE || row.telepon || row.Telepon || '',
-              address: row.address || row.Address || row.ADDRESS || row.alamat || row.Alamat || ''
+              name: sanitizeText(String(row.name || row.Name || row.NAMA || ''), 100),
+              email: sanitizeText(String(row.email || row.Email || row.EMAIL || ''), 254),
+              phone: sanitizeText(String(row.phone || row.Phone || row.PHONE || row.telepon || row.Telepon || ''), 20),
+              address: sanitizeText(String(row.address || row.Address || row.ADDRESS || row.alamat || row.Alamat || ''), 500)
             };
-            if (participant.name.trim() && participant.email.trim()) {
-              onAddParticipant(participant);
+
+            const validation = validateParticipantData(participant);
+            if (!validation.isValid) {
+              errorCount++;
+              errors.push(`Baris ${index + 2}: ${validation.error}`);
+              return;
             }
+
+            // Check for duplicate email
+            if (participants.some(p => p.email.toLowerCase() === participant.email.toLowerCase())) {
+              errorCount++;
+              errors.push(`Baris ${index + 2}: Email ${participant.email} sudah terdaftar`);
+              return;
+            }
+
+            onAddParticipant(participant);
+            successCount++;
+          } catch (error) {
+            errorCount++;
+            errors.push(`Baris ${index + 2}: Error tidak diketahui`);
           }
         });
+
+        if (successCount > 0) {
+          toast.success(`Berhasil mengimpor ${successCount} peserta`);
+        }
+        
+        if (errorCount > 0) {
+          toast.error(`${errorCount} data gagal diimpor. Periksa format data.`);
+          console.error('Import errors:', errors.slice(0, 10)); // Log first 10 errors
+        }
       } catch (error) {
         console.error('Error importing Excel file:', error);
-        alert('Gagal mengimpor file Excel. Pastikan format file benar.');
+        toast.error('Gagal mengimpor file Excel. Pastikan format file benar.');
+      } finally {
+        setIsImporting(false);
       }
     };
+    
+    reader.onerror = () => {
+      toast.error('Gagal membaca file');
+      setIsImporting(false);
+    };
+    
     reader.readAsArrayBuffer(file);
+    
+    // Reset input
+    e.target.value = '';
   };
 
   const downloadTemplate = () => {
@@ -97,15 +191,16 @@ export const ParticipantManager = ({ participants, onAddParticipant, onDeletePar
               Template Excel
             </Button>
             <div className="relative">
-              <Button variant="outline" asChild>
+              <Button variant="outline" asChild disabled={isImporting}>
                 <label className="cursor-pointer">
                   <Upload className="w-4 h-4 mr-2" />
-                  Import Excel
+                  {isImporting ? 'Mengimpor...' : 'Import Excel'}
                   <input
                     type="file"
                     accept=".xlsx,.xls"
                     onChange={handleExcelImport}
                     className="absolute inset-0 opacity-0 cursor-pointer"
+                    disabled={isImporting}
                   />
                 </label>
               </Button>
@@ -126,6 +221,7 @@ export const ParticipantManager = ({ participants, onAddParticipant, onDeletePar
                       value={formData.name}
                       onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
                       placeholder="Masukkan nama lengkap"
+                      maxLength={100}
                       required
                     />
                   </div>
@@ -137,6 +233,7 @@ export const ParticipantManager = ({ participants, onAddParticipant, onDeletePar
                       value={formData.email}
                       onChange={(e) => setFormData(prev => ({ ...prev, email: e.target.value }))}
                       placeholder="Masukkan email"
+                      maxLength={254}
                       required
                     />
                   </div>
@@ -147,6 +244,7 @@ export const ParticipantManager = ({ participants, onAddParticipant, onDeletePar
                       value={formData.phone}
                       onChange={(e) => setFormData(prev => ({ ...prev, phone: e.target.value }))}
                       placeholder="Masukkan nomor telepon"
+                      maxLength={20}
                     />
                   </div>
                   <div className="space-y-2">
@@ -156,6 +254,7 @@ export const ParticipantManager = ({ participants, onAddParticipant, onDeletePar
                       value={formData.address}
                       onChange={(e) => setFormData(prev => ({ ...prev, address: e.target.value }))}
                       placeholder="Masukkan alamat"
+                      maxLength={500}
                     />
                   </div>
                   <div className="flex gap-2">

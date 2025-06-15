@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Crown, Calendar, Gift, User, Download } from "lucide-react";
 import { Winner, Prize, Participant } from "@/hooks/useGiveaway";
+import { toast } from 'sonner';
 import * as XLSX from 'xlsx';
 
 interface WinnerHistoryProps {
@@ -20,33 +21,45 @@ export const WinnerHistory = ({ winners, prizes, participants }: WinnerHistoryPr
   };
 
   const exportToExcel = () => {
-    const exportData = winners.map(winner => {
-      const { prize, participant } = getWinnerDetails(winner);
-      return {
-        'Nama Pemenang': participant?.name || 'Tidak ditemukan',
-        'Email': participant?.email || '',
-        'Telepon': participant?.phone || '',
-        'Alamat': participant?.address || '',
-        'Hadiah': prize?.name || 'Tidak ditemukan',
-        'Deskripsi Hadiah': prize?.description || '',
-        'Tanggal Undian': winner.drawDate.toLocaleDateString('id-ID'),
-        'Waktu Undian': winner.drawDate.toLocaleTimeString('id-ID'),
-        'Catatan': winner.notes || ''
-      };
-    });
+    try {
+      if (winners.length === 0) {
+        toast.error('Tidak ada data pemenang untuk diekspor');
+        return;
+      }
 
-    const ws = XLSX.utils.json_to_sheet(exportData);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Data Pemenang');
-    
-    // Auto-size columns
-    const colWidths = Object.keys(exportData[0] || {}).map(key => ({
-      wch: Math.max(key.length, 15)
-    }));
-    ws['!cols'] = colWidths;
-    
-    const fileName = `pemenang_undian_${new Date().toISOString().split('T')[0]}.xlsx`;
-    XLSX.writeFile(wb, fileName);
+      const exportData = winners.map(winner => {
+        const { prize, participant } = getWinnerDetails(winner);
+        return {
+          'Nama Pemenang': participant?.name || 'Tidak ditemukan',
+          'Email': participant?.email || '',
+          'Telepon': participant?.phone || '',
+          'Alamat': participant?.address || '',
+          'Hadiah': prize?.name || 'Tidak ditemukan',
+          'Deskripsi Hadiah': prize?.description || '',
+          'Tanggal Undian': winner.drawDate.toLocaleDateString('id-ID'),
+          'Waktu Undian': winner.drawDate.toLocaleTimeString('id-ID'),
+          'Catatan': winner.notes || ''
+        };
+      });
+
+      const ws = XLSX.utils.json_to_sheet(exportData);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Data Pemenang');
+      
+      // Auto-size columns
+      const colWidths = Object.keys(exportData[0] || {}).map(key => ({
+        wch: Math.max(key.length, 15)
+      }));
+      ws['!cols'] = colWidths;
+      
+      const fileName = `pemenang_undian_${new Date().toISOString().split('T')[0]}.xlsx`;
+      XLSX.writeFile(wb, fileName);
+      
+      toast.success('Data pemenang berhasil diekspor');
+    } catch (error) {
+      console.error('Error exporting Excel file:', error);
+      toast.error('Gagal mengekspor data. Silakan coba lagi.');
+    }
   };
 
   return (
