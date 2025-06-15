@@ -30,10 +30,20 @@ const Index = () => {
     deleteParticipant
   } = useGiveaway();
 
+  const [currentWinners, setCurrentWinners] = useState<typeof winners>([]);
+
   const selectedPrize = prizes.find(p => p.id === selectedPrizeId);
   const availableParticipants = participants.filter(p => 
     !winners.some(w => w.participantId === p.id && w.prizeId === selectedPrizeId)
   );
+
+  const handleStartDraw = async () => {
+    setCurrentWinners([]);
+    const newWinners = await startDraw();
+    if (newWinners) {
+      setCurrentWinners(newWinners);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-50 to-blue-50 p-4">
@@ -67,7 +77,7 @@ const Index = () => {
           </TabsList>
 
           <TabsContent value="draw" className="space-y-6">
-            <div className="grid md:grid-cols-2 gap-6">
+            <div className="grid md:grid-cols-3 gap-6">
               <Card>
                 <CardHeader>
                   <CardTitle>Pengaturan Undian</CardTitle>
@@ -104,7 +114,7 @@ const Index = () => {
                   </div>
 
                   <Button 
-                    onClick={startDraw}
+                    onClick={handleStartDraw}
                     disabled={!selectedPrizeId || isDrawing || availableParticipants.length < winnerCount}
                     className="w-full"
                     size="lg"
@@ -120,7 +130,15 @@ const Index = () => {
                 </CardContent>
               </Card>
 
-              <DrawWheel isDrawing={isDrawing} />
+              <div className="md:col-span-2">
+                <DrawWheel 
+                  isDrawing={isDrawing}
+                  selectedPrize={selectedPrize}
+                  participants={availableParticipants}
+                  currentWinners={currentWinners}
+                  prizes={prizes}
+                />
+              </div>
             </div>
           </TabsContent>
 

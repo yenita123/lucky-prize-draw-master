@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Trash2, Plus, Gift } from "lucide-react";
+import { Trash2, Plus, Gift, Upload } from "lucide-react";
 import { Prize } from "@/hooks/useGiveaway";
 
 interface PrizeManagerProps {
@@ -19,15 +19,27 @@ export const PrizeManager = ({ prizes, onAddPrize, onDeletePrize }: PrizeManager
   const [formData, setFormData] = useState({
     name: '',
     description: '',
-    quantity: 1
+    quantity: 1,
+    image: ''
   });
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        setFormData(prev => ({ ...prev, image: event.target?.result as string }));
+      };
+      reader.readAsDataURL(file);
+    }
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.name.trim()) return;
     
     onAddPrize(formData);
-    setFormData({ name: '', description: '', quantity: 1 });
+    setFormData({ name: '', description: '', quantity: 1, image: '' });
     setShowAddForm(false);
   };
 
@@ -86,6 +98,25 @@ export const PrizeManager = ({ prizes, onAddPrize, onDeletePrize }: PrizeManager
                       onChange={(e) => setFormData(prev => ({ ...prev, quantity: parseInt(e.target.value) || 1 }))}
                     />
                   </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="prize-image">Gambar Hadiah</Label>
+                    <Input
+                      id="prize-image"
+                      type="file"
+                      accept="image/*"
+                      onChange={handleImageUpload}
+                      className="cursor-pointer"
+                    />
+                    {formData.image && (
+                      <div className="mt-2">
+                        <img 
+                          src={formData.image} 
+                          alt="Preview" 
+                          className="w-32 h-32 object-cover rounded-lg border"
+                        />
+                      </div>
+                    )}
+                  </div>
                   <div className="flex gap-2">
                     <Button type="submit">Simpan</Button>
                     <Button type="button" variant="outline" onClick={() => setShowAddForm(false)}>
@@ -101,6 +132,15 @@ export const PrizeManager = ({ prizes, onAddPrize, onDeletePrize }: PrizeManager
             {prizes.map((prize) => (
               <Card key={prize.id}>
                 <CardHeader>
+                  {prize.image && (
+                    <div className="mb-2">
+                      <img 
+                        src={prize.image} 
+                        alt={prize.name}
+                        className="w-full h-32 object-cover rounded-lg"
+                      />
+                    </div>
+                  )}
                   <CardTitle className="text-lg">{prize.name}</CardTitle>
                   <CardDescription>{prize.description}</CardDescription>
                 </CardHeader>

@@ -1,4 +1,3 @@
-
 import { useState, useCallback } from 'react';
 import { toast } from 'sonner';
 
@@ -27,25 +26,28 @@ export interface Winner {
 }
 
 export const useGiveaway = () => {
-  // Sample data
+  // Sample data with images
   const [prizes, setPrizes] = useState<Prize[]>([
     {
       id: '1',
       name: 'iPhone 15 Pro',
       description: 'Smartphone terbaru Apple dengan teknologi Pro',
-      quantity: 1
+      quantity: 1,
+      image: 'https://images.unsplash.com/photo-1618160702438-9b02ab6515c9?w=300&h=300&fit=crop'
     },
     {
       id: '2',
       name: 'Laptop Gaming',
       description: 'Laptop gaming dengan spesifikasi tinggi',
-      quantity: 1
+      quantity: 1,
+      image: 'https://images.unsplash.com/photo-1582562124811-c09040d0a901?w=300&h=300&fit=crop'
     },
     {
       id: '3',
       name: 'Voucher Belanja 500K',
       description: 'Voucher belanja senilai 500 ribu rupiah',
-      quantity: 5
+      quantity: 5,
+      image: 'https://images.unsplash.com/photo-1535268647677-300dbf3d78d1?w=300&h=300&fit=crop'
     },
     {
       id: '4',
@@ -73,16 +75,16 @@ export const useGiveaway = () => {
   const [selectedPrizeId, setSelectedPrizeId] = useState<string | null>(null);
   const [winnerCount, setWinnerCount] = useState(1);
 
-  const startDraw = useCallback(async () => {
+  const startDraw = useCallback(async (): Promise<Winner[] | null> => {
     if (!selectedPrizeId) {
       toast.error('Pilih hadiah terlebih dahulu');
-      return;
+      return null;
     }
 
     const selectedPrize = prizes.find(p => p.id === selectedPrizeId);
     if (!selectedPrize) {
       toast.error('Hadiah tidak ditemukan');
-      return;
+      return null;
     }
 
     const availableParticipants = participants.filter(p => 
@@ -91,45 +93,55 @@ export const useGiveaway = () => {
 
     if (availableParticipants.length < winnerCount) {
       toast.error('Tidak cukup peserta yang tersedia');
-      return;
+      return null;
     }
 
     if (selectedPrize.quantity < winnerCount) {
       toast.error('Kuantitas hadiah tidak mencukupi');
-      return;
+      return null;
     }
 
     setIsDrawing(true);
 
-    // Simulate drawing process with delay
-    setTimeout(() => {
-      // Randomly select winners
-      const shuffled = [...availableParticipants].sort(() => 0.5 - Math.random());
-      const selectedWinners = shuffled.slice(0, winnerCount);
+    // Simulate drawing process with longer delay for animation
+    const newWinners = await new Promise<Winner[]>((resolve) => {
+      setTimeout(() => {
+        // Randomly select winners
+        const shuffled = [...availableParticipants].sort(() => 0.5 - Math.random());
+        const selectedWinners = shuffled.slice(0, winnerCount);
 
-      const newWinners: Winner[] = selectedWinners.map(participant => ({
-        id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
-        prizeId: selectedPrizeId,
-        participantId: participant.id,
-        drawDate: new Date(),
-        notes: 'Undian otomatis'
-      }));
+        const winners: Winner[] = selectedWinners.map(participant => ({
+          id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+          prizeId: selectedPrizeId,
+          participantId: participant.id,
+          drawDate: new Date(),
+          notes: 'Undian otomatis'
+        }));
 
-      // Update winners
-      setWinners(prev => [...prev, ...newWinners]);
+        resolve(winners);
+      }, 3000);
+    });
 
-      // Update prize quantity
-      setPrizes(prev => prev.map(p => 
-        p.id === selectedPrizeId 
-          ? { ...p, quantity: p.quantity - winnerCount }
-          : p
-      ));
+    // Update winners
+    setWinners(prev => [...prev, ...newWinners]);
 
-      setIsDrawing(false);
-      
-      const winnerNames = selectedWinners.map(w => w.name).join(', ');
-      toast.success(`Selamat kepada pemenang: ${winnerNames}!`);
-    }, 3000);
+    // Update prize quantity
+    setPrizes(prev => prev.map(p => 
+      p.id === selectedPrizeId 
+        ? { ...p, quantity: p.quantity - winnerCount }
+        : p
+    ));
+
+    setIsDrawing(false);
+    
+    const winnerNames = newWinners.map(w => {
+      const participant = participants.find(p => p.id === w.participantId);
+      return participant?.name || 'Unknown';
+    }).join(', ');
+    
+    toast.success(`Selamat kepada pemenang: ${winnerNames}!`);
+    
+    return newWinners;
   }, [selectedPrizeId, winnerCount, prizes, participants, winners]);
 
   const addPrize = useCallback((prize: Omit<Prize, 'id'>) => {
