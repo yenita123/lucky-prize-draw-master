@@ -1,12 +1,12 @@
-
 import { useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Trash2, Plus, Users, Mail, Phone } from "lucide-react";
+import { Trash2, Plus, Users, Mail, Phone, Upload, Download } from "lucide-react";
 import { Participant } from "@/hooks/useGiveaway";
+import * as XLSX from 'xlsx';
 
 interface ParticipantManagerProps {
   participants: Participant[];
@@ -32,6 +32,50 @@ export const ParticipantManager = ({ participants, onAddParticipant, onDeletePar
     setShowAddForm(false);
   };
 
+  const handleExcelImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const data = new Uint8Array(event.target?.result as ArrayBuffer);
+        const workbook = XLSX.read(data, { type: 'array' });
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
+        const jsonData = XLSX.utils.sheet_to_json(worksheet);
+
+        jsonData.forEach((row: any) => {
+          if (row.name || row.Name || row.NAMA) {
+            const participant = {
+              name: row.name || row.Name || row.NAMA || '',
+              email: row.email || row.Email || row.EMAIL || '',
+              phone: row.phone || row.Phone || row.PHONE || row.telepon || row.Telepon || '',
+              address: row.address || row.Address || row.ADDRESS || row.alamat || row.Alamat || ''
+            };
+            if (participant.name.trim() && participant.email.trim()) {
+              onAddParticipant(participant);
+            }
+          }
+        });
+      } catch (error) {
+        console.error('Error importing Excel file:', error);
+        alert('Gagal mengimpor file Excel. Pastikan format file benar.');
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  };
+
+  const downloadTemplate = () => {
+    const template = [
+      { name: 'Contoh Nama', email: 'contoh@email.com', phone: '081234567890', address: 'Alamat lengkap' }
+    ];
+    const ws = XLSX.utils.json_to_sheet(template);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Template Peserta');
+    XLSX.writeFile(wb, 'template_peserta.xlsx');
+  };
+
   return (
     <div className="space-y-6">
       <Card>
@@ -43,13 +87,30 @@ export const ParticipantManager = ({ participants, onAddParticipant, onDeletePar
           <CardDescription>Kelola peserta undian</CardDescription>
         </CardHeader>
         <CardContent>
-          <Button 
-            onClick={() => setShowAddForm(!showAddForm)}
-            className="mb-4"
-          >
-            <Plus className="w-4 h-4 mr-2" />
-            Tambah Peserta
-          </Button>
+          <div className="flex gap-2 mb-4">
+            <Button onClick={() => setShowAddForm(!showAddForm)}>
+              <Plus className="w-4 h-4 mr-2" />
+              Tambah Peserta
+            </Button>
+            <Button variant="outline" onClick={downloadTemplate}>
+              <Download className="w-4 h-4 mr-2" />
+              Template Excel
+            </Button>
+            <div className="relative">
+              <Button variant="outline" asChild>
+                <label className="cursor-pointer">
+                  <Upload className="w-4 h-4 mr-2" />
+                  Import Excel
+                  <input
+                    type="file"
+                    accept=".xlsx,.xls"
+                    onChange={handleExcelImport}
+                    className="absolute inset-0 opacity-0 cursor-pointer"
+                  />
+                </label>
+              </Button>
+            </div>
+          </div>
 
           {showAddForm && (
             <Card className="mb-6">

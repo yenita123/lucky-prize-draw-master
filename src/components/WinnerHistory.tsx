@@ -1,8 +1,10 @@
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Crown, Calendar, Gift, User } from "lucide-react";
+import { Crown, Calendar, Gift, User, Download } from "lucide-react";
 import { Winner, Prize, Participant } from "@/hooks/useGiveaway";
+import * as XLSX from 'xlsx';
 
 interface WinnerHistoryProps {
   winners: Winner[];
@@ -17,16 +19,56 @@ export const WinnerHistory = ({ winners, prizes, participants }: WinnerHistoryPr
     return { prize, participant };
   };
 
+  const exportToExcel = () => {
+    const exportData = winners.map(winner => {
+      const { prize, participant } = getWinnerDetails(winner);
+      return {
+        'Nama Pemenang': participant?.name || 'Tidak ditemukan',
+        'Email': participant?.email || '',
+        'Telepon': participant?.phone || '',
+        'Alamat': participant?.address || '',
+        'Hadiah': prize?.name || 'Tidak ditemukan',
+        'Deskripsi Hadiah': prize?.description || '',
+        'Tanggal Undian': winner.drawDate.toLocaleDateString('id-ID'),
+        'Waktu Undian': winner.drawDate.toLocaleTimeString('id-ID'),
+        'Catatan': winner.notes || ''
+      };
+    });
+
+    const ws = XLSX.utils.json_to_sheet(exportData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Data Pemenang');
+    
+    // Auto-size columns
+    const colWidths = Object.keys(exportData[0] || {}).map(key => ({
+      wch: Math.max(key.length, 15)
+    }));
+    ws['!cols'] = colWidths;
+    
+    const fileName = `pemenang_undian_${new Date().toISOString().split('T')[0]}.xlsx`;
+    XLSX.writeFile(wb, fileName);
+  };
+
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Crown className="w-5 h-5" />
-          Riwayat Pemenang
-        </CardTitle>
-        <CardDescription>
-          Daftar semua pemenang undian ({winners.length} pemenang)
-        </CardDescription>
+        <div className="flex justify-between items-start">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <Crown className="w-5 h-5" />
+              Riwayat Pemenang
+            </CardTitle>
+            <CardDescription>
+              Daftar semua pemenang undian ({winners.length} pemenang)
+            </CardDescription>
+          </div>
+          {winners.length > 0 && (
+            <Button onClick={exportToExcel} variant="outline">
+              <Download className="w-4 h-4 mr-2" />
+              Export Excel
+            </Button>
+          )}
+        </div>
       </CardHeader>
       <CardContent>
         {winners.length === 0 ? (
